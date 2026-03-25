@@ -28,6 +28,21 @@ class FirewallService
         ];
     }
 
+    /**
+     * Jalankan command tanpa sudo (untuk command read-only / cek binary).
+     */
+    private function execNoSudo(string $command): array
+    {
+        $fullCommand = "{$command} 2>&1";
+        exec($fullCommand, $output, $returnCode);
+
+        return [
+            'success' => $returnCode === 0,
+            'output'  => implode("\n", $output),
+            'code'    => $returnCode,
+        ];
+    }
+
     // =========================================================
     //  STATUS FIREWALL
     // =========================================================
@@ -440,6 +455,8 @@ class FirewallService
 
     public function isFail2BanInstalled(): bool
     {
+        $result = $this->execNoSudo('command -v fail2ban-client || which fail2ban-client');
+        return !empty(trim($result['output']));
         $result = $this->exec('command -v fail2ban-client');
         return $result['success'] && !empty(trim($result['output']));
     }
@@ -473,6 +490,7 @@ class FirewallService
             ];
         }
 
+        $statusResult = $this->runFail2BanCommand('status');
         $statusResult = $this->exec('fail2ban-client status');
         $active = $statusResult['success'];
         $jails = $this->parseJailList($statusResult['output']);
@@ -494,6 +512,7 @@ class FirewallService
     public function getFail2BanJailStatus(string $jail): array
     {
         $jail = trim($jail);
+        $result = $this->runFail2BanCommand("status {$jail}");
         $result = $this->exec("fail2ban-client status {$jail}");
 
         if (! $result['success']) {
@@ -574,6 +593,7 @@ class FirewallService
             return ['success' => false, 'message' => 'Fail2Ban belum terpasang.', 'data' => []];
         }
 
+        $globalStatus = $this->runFail2BanCommand('status');
         $globalStatus = $this->exec('fail2ban-client status');
         $jails = $this->parseJailList($globalStatus['output']);
         $all = [
@@ -584,6 +604,7 @@ class FirewallService
         ];
 
         foreach ($jails as $jail) {
+            $status = $this->runFail2BanCommand("status {$jail}");
             $status = $this->exec("fail2ban-client status {$jail}");
             $all[] = [
                 'scope' => $jail,
@@ -592,6 +613,23 @@ class FirewallService
         }
 
         return ['success' => true, 'data' => $all];
+    }
+
+    private function runFail2BanCommand(string $args): array
+    {
+        $cmd = "fail2ban-client {$args}";
+        $sudoResult = $this->exec($cmd);
+
+        if ($sudoResult['success']) {
+            return $sudoResult;
+        }
+
+        $fallback = $this->execNoSudo($cmd);
+        if ($fallback['success'] || !empty(trim($fallback['output']))) {
+            return $fallback;
+        }
+
+        return $sudoResult;
     }
 
     private function parseJailList(string $output): array

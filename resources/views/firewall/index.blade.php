@@ -213,6 +213,34 @@ const fail2banEndpoints = {
 };
 
 async function loadFail2BanStatus() {
+  const summary = document.getElementById('fail2ban-summary');
+  const installBtn = document.getElementById('btn-install-fail2ban');
+  const jailSelect = document.getElementById('fail2ban-jail');
+  try {
+    const res = await api(fail2banEndpoints.status);
+    if (!res.success) {
+      summary.innerHTML = '<span style="color:var(--accent3)">Gagal membaca status Fail2Ban.</span>';
+      return;
+    }
+
+    const data = res.data || {};
+
+    if (!data.installed) {
+      summary.innerHTML = '<span style="color:var(--accent4)">Fail2Ban belum terpasang.</span>';
+      installBtn.style.display = 'inline-block';
+      jailSelect.innerHTML = '<option value="">-</option>';
+      return;
+    }
+
+    installBtn.style.display = 'none';
+    const activeText = data.active ? 'aktif' : 'tidak aktif';
+    summary.innerHTML = `Fail2Ban terpasang dan <b>${activeText}</b>. Jail aktif: <b>${(data.jails || []).map(j => j.name).join(', ') || 'tidak ada'}</b>`;
+
+    const available = Array.isArray(data.available_jails) ? data.available_jails : [];
+    jailSelect.innerHTML = available.map(j => `<option value="${j}">${j}</option>`).join('') || '<option value="">Tidak ada jail</option>';
+  } catch (err) {
+    summary.innerHTML = '<span style="color:var(--accent3)">Status Fail2Ban tidak bisa dimuat.</span>';
+  }
   const res = await api(fail2banEndpoints.status);
 async function loadFail2BanStatus() {
   const res = await api('{{ route("firewall.fail2ban.status") }}');
