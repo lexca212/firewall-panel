@@ -13,42 +13,49 @@ use Illuminate\Support\Facades\Route;
 */
 
 Route::prefix('firewall')->name('firewall.')->group(function () {
+    // Login (tanpa database)
+    Route::get('/login',  [FirewallController::class, 'loginForm'])->name('login.form');
+    Route::post('/login', [FirewallController::class, 'login'])->name('login');
 
-    // Dashboard
-    Route::get('/',       [FirewallController::class, 'index'])->name('index');
+    Route::middleware('firewall.auth')->group(function () {
+        Route::post('/logout', [FirewallController::class, 'logout'])->name('logout');
+        Route::post('/credentials', [FirewallController::class, 'updateCredentials'])->name('credentials.update');
 
-    // Status & Toggle
-    Route::get('/status',  [FirewallController::class, 'status'])->name('status');
-    Route::post('/enable', [FirewallController::class, 'enable'])->name('enable');
-    Route::post('/disable',[FirewallController::class, 'disable'])->name('disable');
+        // Dashboard
+        Route::get('/',       [FirewallController::class, 'index'])->name('index');
 
-    // Rules
-    Route::get('/rules',         [FirewallController::class, 'rules'])->name('rules');
-    Route::post('/rules',        [FirewallController::class, 'addRule'])->name('rules.add');
-    Route::delete('/rules',      [FirewallController::class, 'deleteRule'])->name('rules.delete');
-    Route::post('/rules/flush',  [FirewallController::class, 'flushRules'])->name('rules.flush');
-    Route::post('/rules/policy', [FirewallController::class, 'setPolicy'])->name('rules.policy');
+        // Status & Toggle
+        Route::get('/status',  [FirewallController::class, 'status'])->name('status');
+        Route::post('/enable', [FirewallController::class, 'enable'])->name('enable');
+        Route::post('/disable',[FirewallController::class, 'disable'])->name('disable');
 
-    // Ganti Port
-    Route::post('/change-port',  [FirewallController::class, 'changePort'])->name('change-port');
+        // Rules
+        Route::get('/rules',         [FirewallController::class, 'rules'])->name('rules');
+        Route::post('/rules',        [FirewallController::class, 'addRule'])->name('rules.add');
+        Route::delete('/rules',      [FirewallController::class, 'deleteRule'])->name('rules.delete');
+        Route::post('/rules/flush',  [FirewallController::class, 'flushRules'])->name('rules.flush');
+        Route::post('/rules/policy', [FirewallController::class, 'setPolicy'])->name('rules.policy');
 
-    // Save & Restore
-    Route::post('/save',    [FirewallController::class, 'saveRules'])->name('save');
-    Route::post('/restore', [FirewallController::class, 'restoreRules'])->name('restore');
-    Route::get('/export',   [FirewallController::class, 'exportRules'])->name('export');
+        // Ganti Port
+        Route::post('/change-port',  [FirewallController::class, 'changePort'])->name('change-port');
 
-    // Live Logs
-    Route::get('/logs',        [FirewallController::class, 'logs'])->name('logs');
-    Route::get('/logs/stream', [FirewallController::class, 'logsStream'])->name('logs.stream');
+        // Save & Restore
+        Route::post('/save',    [FirewallController::class, 'saveRules'])->name('save');
+        Route::post('/restore', [FirewallController::class, 'restoreRules'])->name('restore');
+        Route::get('/export',   [FirewallController::class, 'exportRules'])->name('export');
 
-    // Stats (polling)
-    Route::get('/stats',   [FirewallController::class, 'stats'])->name('stats');
+        // Live Logs
+        Route::get('/logs',        [FirewallController::class, 'logs'])->name('logs');
+        Route::get('/logs/stream', [FirewallController::class, 'logsStream'])->name('logs.stream');
 
-    // Telegram
-    Route::post('/telegram/save', [FirewallController::class, 'telegramSave'])->name('telegram.save');
-    Route::post('/telegram/test', [FirewallController::class, 'telegramTest'])->name('telegram.test');
+        // Stats (polling)
+        Route::get('/stats',   [FirewallController::class, 'stats'])->name('stats');
+
+        // Telegram
+        Route::post('/telegram/save', [FirewallController::class, 'telegramSave'])->name('telegram.save');
+        Route::post('/telegram/test', [FirewallController::class, 'telegramTest'])->name('telegram.test');
+    });
 });
 
 // Redirect root ke dashboard
 Route::redirect('/', '/firewall');
-

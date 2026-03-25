@@ -312,6 +312,11 @@ class FirewallService
             $result = $this->exec("tail -n {$lines} /var/log/kern.log 2>/dev/null | grep -i 'iptables\\|DROP\\|REJECT'");
         }
 
+        // Fallback terakhir: log aplikasi firewall
+        if (empty(trim($result['output']))) {
+            $result = $this->exec("tail -n {$lines} " . storage_path('logs/firewall.log') . " 2>/dev/null");
+        }
+
         return $this->parseLogs($result['output']);
     }
 
