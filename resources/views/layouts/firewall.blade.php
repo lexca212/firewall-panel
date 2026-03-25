@@ -487,18 +487,36 @@ setInterval(pollStats, 8000);
 
 // ---- LOG POLLING ----
 async function pollLogs() {
-  const data = await api('{{ route("firewall.logs") }}?lines=30');
-  if(!data.success) return;
-  ['log-preview','log-full'].forEach(id => {
-    const el = document.getElementById(id);
-    if(!el) return;
-    el.innerHTML = data.data.map(l => {
-      const cls = l.action==='ACCEPT'?'log-accept':l.action==='DROP'?'log-drop':'log-reject';
-      const info = l.src ? `${l.proto||'?'} ${l.src}:${l.spt||'?'} → ${l.dst||'?'}:${l.dpt||'?'}` : l.raw.substring(0,90);
-      return `<div class="log-line"><span class="log-time">${l.time||'—'}</span><span class="${cls}">[${l.action}]</span><span>${info}</span></div>`;
-    }).join('');
-    el.scrollTop = el.scrollHeight;
-  });
+  try {
+    const data = await api('{{ route("firewall.logs") }}?lines=30');
+    if(!data.success) return;
+    ['log-preview','log-full'].forEach(id => {
+      const el = document.getElementById(id);
+      if(!el) return;
+
+      if(!Array.isArray(data.data) || data.data.length === 0) {
+        el.innerHTML = '<div style="color:var(--text2)">Belum ada log firewall yang terdeteksi.</div>';
+        return;
+      }
+
+      el.innerHTML = data.data.map(l => {
+        const action = l.action || 'INFO';
+        const cls = action==='ACCEPT' ? 'log-accept' : action==='DROP' ? 'log-drop' : action==='REJECT' ? 'log-reject' : '';
+        const raw = (l.raw || '').toString();
+        const info = l.src
+          ? `${l.proto||'?'} ${l.src}:${l.spt||'?'} → ${l.dst||'?'}:${l.dpt||'?'}`
+          : (raw || 'Log tanpa detail').substring(0,120);
+        return `<div class="log-line"><span class="log-time">${l.time||'—'}</span><span class="${cls}">[${action}]</span><span>${info}</span></div>`;
+      }).join('');
+      el.scrollTop = el.scrollHeight;
+    });
+  } catch (e) {
+    ['log-preview','log-full'].forEach(id => {
+      const el = document.getElementById(id);
+      if(!el) return;
+      el.innerHTML = '<div style="color:var(--accent3)">Gagal memuat log. Coba refresh halaman.</div>';
+    });
+  }
 }
 setInterval(pollLogs, 4000);
 pollLogs();
