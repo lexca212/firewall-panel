@@ -337,4 +337,46 @@ class FirewallController extends Controller
             'status'  => $this->firewall->getStatus(),
         ]);
     }
+
+    // =========================================================
+    //  FAIL2BAN
+    // =========================================================
+
+    public function fail2banStatus(): JsonResponse
+    {
+        return response()->json([
+            'success' => true,
+            'data' => $this->firewall->getFail2BanOverview(),
+        ]);
+    }
+
+    public function fail2banInstall(): JsonResponse
+    {
+        $result = $this->firewall->installFail2Ban();
+        return response()->json([
+            'success' => $result['success'],
+            'message' => $result['message'],
+        ], $result['success'] ? 200 : 422);
+    }
+
+    public function fail2banSetJail(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'jail' => 'required|string|max:80',
+            'enabled' => 'required|boolean',
+        ]);
+
+        $result = $this->firewall->setFail2BanJailState($validated['jail'], (bool) $validated['enabled']);
+
+        return response()->json([
+            'success' => $result['success'],
+            'message' => $result['message'],
+        ], $result['success'] ? 200 : 422);
+    }
+
+    public function fail2banLogs(): JsonResponse
+    {
+        $result = $this->firewall->getFail2BanLogs();
+        return response()->json($result, $result['success'] ? 200 : 422);
+    }
 }

@@ -54,6 +54,12 @@ Route::prefix('firewall')->name('firewall.')->group(function () {
         // Telegram
         Route::post('/telegram/save', [FirewallController::class, 'telegramSave'])->name('telegram.save');
         Route::post('/telegram/test', [FirewallController::class, 'telegramTest'])->name('telegram.test');
+
+        // Fail2Ban
+        Route::get('/fail2ban/status', [FirewallController::class, 'fail2banStatus'])->name('fail2ban.status');
+        Route::post('/fail2ban/install', [FirewallController::class, 'fail2banInstall'])->name('fail2ban.install');
+        Route::post('/fail2ban/jail', [FirewallController::class, 'fail2banSetJail'])->name('fail2ban.jail');
+        Route::get('/fail2ban/logs', [FirewallController::class, 'fail2banLogs'])->name('fail2ban.logs');
     });
 });
 
