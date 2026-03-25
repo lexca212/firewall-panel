@@ -206,6 +206,10 @@
         <span class="ico" id="toggle-fw-ico">⏼</span>
         <span id="toggle-fw-label">Nonaktifkan FW</span>
       </a>
+      <form method="POST" action="{{ route('firewall.logout') }}" style="margin-top:10px">
+        @csrf
+        <button class="btn btn-red" style="width:100%" type="submit">Logout Panel</button>
+      </form>
     </div>
   </nav>
 

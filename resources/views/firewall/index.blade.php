@@ -33,6 +33,35 @@
   </div>
 </div>
 
+{{-- PANEL LOGIN CREDENTIALS --}}
+<div class="panel" style="margin-bottom:20px">
+  <div class="panel-head">
+    <span class="panel-title">🔐 Pengaturan Login Panel</span>
+  </div>
+  <form method="POST" action="{{ route('firewall.credentials.update') }}" class="form-row">
+    @csrf
+    <div class="fg">
+      <label class="flabel">Username Baru</label>
+      <input class="finput" type="text" name="username" value="{{ config('firewall.panel_username') }}" style="width:160px" required>
+    </div>
+    <div class="fg">
+      <label class="flabel">Password Baru</label>
+      <input class="finput" type="password" name="password" placeholder="Minimal 6 karakter" style="width:180px" required>
+    </div>
+    <div class="fg">
+      <label class="flabel">Password Saat Ini</label>
+      <input class="finput" type="password" name="current_password" placeholder="Verifikasi perubahan" style="width:180px" required>
+    </div>
+    <button class="btn btn-green" type="submit">Simpan Login Baru</button>
+  </form>
+  @if(session('status'))
+    <div style="padding:0 18px 14px;color:var(--accent2);font-size:13px">{{ session('status') }}</div>
+  @endif
+  @if($errors->has('credentials'))
+    <div style="padding:0 18px 14px;color:var(--accent3);font-size:13px">{{ $errors->first('credentials') }}</div>
+  @endif
+</div>
+
 {{-- CHAIN STATUS --}}
 <div class="panel" style="margin-bottom:20px">
   <div class="panel-head">
