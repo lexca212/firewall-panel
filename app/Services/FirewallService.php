@@ -457,6 +457,8 @@ class FirewallService
     {
         $result = $this->execNoSudo('command -v fail2ban-client || which fail2ban-client');
         return !empty(trim($result['output']));
+        $result = $this->exec('command -v fail2ban-client');
+        return $result['success'] && !empty(trim($result['output']));
     }
 
     public function installFail2Ban(): array
@@ -489,6 +491,7 @@ class FirewallService
         }
 
         $statusResult = $this->runFail2BanCommand('status');
+        $statusResult = $this->exec('fail2ban-client status');
         $active = $statusResult['success'];
         $jails = $this->parseJailList($statusResult['output']);
         $jailStats = [];
@@ -510,6 +513,7 @@ class FirewallService
     {
         $jail = trim($jail);
         $result = $this->runFail2BanCommand("status {$jail}");
+        $result = $this->exec("fail2ban-client status {$jail}");
 
         if (! $result['success']) {
             return [
@@ -590,6 +594,7 @@ class FirewallService
         }
 
         $globalStatus = $this->runFail2BanCommand('status');
+        $globalStatus = $this->exec('fail2ban-client status');
         $jails = $this->parseJailList($globalStatus['output']);
         $all = [
             [
@@ -600,6 +605,7 @@ class FirewallService
 
         foreach ($jails as $jail) {
             $status = $this->runFail2BanCommand("status {$jail}");
+            $status = $this->exec("fail2ban-client status {$jail}");
             $all[] = [
                 'scope' => $jail,
                 'content' => $status['output'],
