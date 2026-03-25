@@ -11,6 +11,72 @@ class FirewallController extends Controller
     public function __construct(private FirewallService $firewall) {}
 
     // =========================================================
+    //  AUTH (tanpa database)
+    // =========================================================
+
+    public function loginForm()
+    {
+        if (session('firewall_authenticated') === true) {
+            return redirect()->route('firewall.index');
+        }
+
+        return view('firewall.login');
+    }
+
+    public function login(Request $request)
+    {
+        $validated = $request->validate([
+            'username' => 'required|string',
+            'password' => 'required|string',
+        ]);
+
+        $validUsername = config('firewall.panel_username');
+        $validPassword = config('firewall.panel_password');
+
+        if (
+            hash_equals((string) $validUsername, (string) $validated['username'])
+            && hash_equals((string) $validPassword, (string) $validated['password'])
+        ) {
+            $request->session()->put('firewall_authenticated', true);
+            $request->session()->regenerate();
+
+            return redirect()->intended(route('firewall.index'));
+        }
+
+        return back()->withInput($request->only('username'))
+            ->withErrors(['login' => 'Username atau password salah.']);
+    }
+
+    public function logout(Request $request)
+    {
+        $request->session()->forget('firewall_authenticated');
+        $request->session()->invalidate();
+        $request->session()->regenerateToken();
+
+        return redirect()->route('firewall.login.form')
+            ->with('status', 'Berhasil logout.');
+    }
+
+    public function updateCredentials(Request $request)
+    {
+        $validated = $request->validate([
+            'current_password' => 'required|string',
+            'username'         => 'required|string|min:3|max:50',
+            'password'         => 'required|string|min:6|max:100',
+        ]);
+
+        if (! hash_equals((string) config('firewall.panel_password'), (string) $validated['current_password'])) {
+            return back()->withErrors(['credentials' => 'Password saat ini tidak sesuai.']);
+        }
+
+        $this->updateEnv('FIREWALL_PANEL_USERNAME', $validated['username']);
+        $this->updateEnv('FIREWALL_PANEL_PASSWORD', $validated['password']);
+        \Artisan::call('config:clear');
+
+        return back()->with('status', 'Username dan password panel berhasil diperbarui.');
+    }
+
+    // =========================================================
     //  DASHBOARD
     // =========================================================
 
@@ -270,5 +336,47 @@ class FirewallController extends Controller
             'data'    => $this->firewall->getStats(),
             'status'  => $this->firewall->getStatus(),
         ]);
+    }
+
+    // =========================================================
+    //  FAIL2BAN
+    // =========================================================
+
+    public function fail2banStatus(): JsonResponse
+    {
+        return response()->json([
+            'success' => true,
+            'data' => $this->firewall->getFail2BanOverview(),
+        ]);
+    }
+
+    public function fail2banInstall(): JsonResponse
+    {
+        $result = $this->firewall->installFail2Ban();
+        return response()->json([
+            'success' => $result['success'],
+            'message' => $result['message'],
+        ], $result['success'] ? 200 : 422);
+    }
+
+    public function fail2banSetJail(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'jail' => 'required|string|max:80',
+            'enabled' => 'required|boolean',
+        ]);
+
+        $result = $this->firewall->setFail2BanJailState($validated['jail'], (bool) $validated['enabled']);
+
+        return response()->json([
+            'success' => $result['success'],
+            'message' => $result['message'],
+        ], $result['success'] ? 200 : 422);
+    }
+
+    public function fail2banLogs(): JsonResponse
+    {
+        $result = $this->firewall->getFail2BanLogs();
+        return response()->json($result, $result['success'] ? 200 : 422);
     }
 }
