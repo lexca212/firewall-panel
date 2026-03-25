@@ -350,6 +350,11 @@ class FirewallController extends Controller
         ]);
     }
 
+    public function fail2banPage()
+    {
+        return view('firewall.fail2ban');
+    }
+
     public function fail2banInstall(): JsonResponse
     {
         $result = $this->firewall->installFail2Ban();

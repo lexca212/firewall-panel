@@ -201,6 +201,12 @@
         <span class="ico">✈</span> Telegram Setup
       </a>
     </div>
+    <div class="nav-group">
+      <div class="nav-label">Security</div>
+      <a href="{{ route('firewall.fail2ban.index') }}" class="nav-item {{ request()->routeIs('firewall.fail2ban.*') ? 'active' : '' }}">
+        <span class="ico">🛡</span> Fail2Ban
+      </a>
+    </div>
     <div class="sidebar-bottom">
       <a href="#" class="nav-item" id="btn-toggle-fw" onclick="toggleFirewall()">
         <span class="ico" id="toggle-fw-ico">⏼</span>
