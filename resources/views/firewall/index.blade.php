@@ -241,11 +241,35 @@ async function loadFail2BanStatus() {
   } catch (err) {
     summary.innerHTML = '<span style="color:var(--accent3)">Status Fail2Ban tidak bisa dimuat.</span>';
   }
+  const res = await api(fail2banEndpoints.status);
+async function loadFail2BanStatus() {
+  const res = await api('{{ route("firewall.fail2ban.status") }}');
+  if (!res.success) return;
+
+  const data = res.data || {};
+  const summary = document.getElementById('fail2ban-summary');
+  const installBtn = document.getElementById('btn-install-fail2ban');
+  const jailSelect = document.getElementById('fail2ban-jail');
+
+  if (!data.installed) {
+    summary.innerHTML = '<span style="color:var(--accent4)">Fail2Ban belum terpasang.</span>';
+    installBtn.style.display = 'inline-block';
+    jailSelect.innerHTML = '<option value="">-</option>';
+    return;
+  }
+
+  installBtn.style.display = 'none';
+  const activeText = data.active ? 'aktif' : 'tidak aktif';
+  summary.innerHTML = `Fail2Ban terpasang dan <b>${activeText}</b>. Jail aktif: <b>${(data.jails || []).map(j => j.name).join(', ') || 'tidak ada'}</b>`;
+
+  const available = Array.isArray(data.available_jails) ? data.available_jails : [];
+  jailSelect.innerHTML = available.map(j => `<option value="${j}">${j}</option>`).join('') || '<option value="">Tidak ada jail</option>';
 }
 
 async function installFail2Ban() {
   if (!confirm('Install Fail2Ban sekarang?')) return;
   const res = await api(fail2banEndpoints.install, 'POST');
+  const res = await api('{{ route("firewall.fail2ban.install") }}', 'POST');
   toast(res.message || 'Proses install selesai.', !res.success);
   if (res.success) {
     await loadFail2BanStatus();
@@ -263,6 +287,7 @@ async function setFail2BanJail() {
   }
 
   const res = await api(fail2banEndpoints.jail, 'POST', { jail, enabled });
+  const res = await api('{{ route("firewall.fail2ban.jail") }}', 'POST', { jail, enabled });
   toast(res.message || 'Konfigurasi jail diperbarui.', !res.success);
   if (res.success) {
     await loadFail2BanStatus();
@@ -273,6 +298,7 @@ async function setFail2BanJail() {
 async function loadFail2BanLogs() {
   const el = document.getElementById('fail2ban-logs');
   const res = await api(fail2banEndpoints.logs);
+  const res = await api('{{ route("firewall.fail2ban.logs") }}');
   if (!res.success) {
     el.innerHTML = `<span style="color:var(--accent4)">${res.message || 'Fail2Ban belum terpasang.'}</span>`;
     return;
