@@ -3,6 +3,20 @@
 // config/firewall.php
 
 return [
+    /*
+    |--------------------------------------------------------------------------
+    | Panel Login (tanpa database)
+    |--------------------------------------------------------------------------
+    | Default:
+    |   Username: DevSecOps
+    |   Password: SysAdmin
+    |
+    | Bisa diganti dari UI, dan nilainya disimpan ke .env.
+    */
+
+    'panel_username' => env('FIREWALL_PANEL_USERNAME', 'DevSecOps'),
+    'panel_password' => env('FIREWALL_PANEL_PASSWORD', 'SysAdmin'),
+    'backup_telegram_notify' => env('BACKUP_TELEGRAM_NOTIFY', true),
 
     /*
     |--------------------------------------------------------------------------

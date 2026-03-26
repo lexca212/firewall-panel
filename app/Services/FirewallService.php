@@ -28,6 +28,21 @@ class FirewallService
         ];
     }
 
+    /**
+     * Jalankan command tanpa sudo (untuk command read-only / cek binary).
+     */
+    private function execNoSudo(string $command): array
+    {
+        $fullCommand = "{$command} 2>&1";
+        exec($fullCommand, $output, $returnCode);
+
+        return [
+            'success' => $returnCode === 0,
+            'output'  => implode("\n", $output),
+            'code'    => $returnCode,
+        ];
+    }
+
     // =========================================================
     //  STATUS FIREWALL
     // =========================================================
@@ -312,6 +327,11 @@ class FirewallService
             $result = $this->exec("tail -n {$lines} /var/log/kern.log 2>/dev/null | grep -i 'iptables\\|DROP\\|REJECT'");
         }
 
+        // Fallback terakhir: log aplikasi firewall
+        if (empty(trim($result['output']))) {
+            $result = $this->exec("tail -n {$lines} " . storage_path('logs/firewall.log') . " 2>/dev/null");
+        }
+
         return $this->parseLogs($result['output']);
     }
 
@@ -427,5 +447,364 @@ class FirewallService
         } catch (\Throwable $e) {
             return false;
         }
+    }
+
+    // =========================================================
+    //  FAIL2BAN
+    // =========================================================
+
+    public function isFail2BanInstalled(): bool
+    {
+        $result = $this->execNoSudo('command -v fail2ban-client || which fail2ban-client');
+        return !empty(trim($result['output']));
+    }
+
+    public function installFail2Ban(): array
+    {
+        if ($this->isFail2BanInstalled()) {
+            return ['success' => true, 'message' => 'Fail2Ban sudah terpasang.'];
+        }
+
+        $install = $this->exec('apt-get update && apt-get install -y fail2ban');
+        if (! $install['success']) {
+            return ['success' => false, 'message' => $install['output']];
+        }
+
+        $this->exec('systemctl enable fail2ban');
+        $this->exec('systemctl restart fail2ban');
+
+        return ['success' => true, 'message' => 'Fail2Ban berhasil diinstall dan dijalankan.'];
+    }
+
+    public function getFail2BanOverview(): array
+    {
+        $installed = $this->isFail2BanInstalled();
+        if (! $installed) {
+            return [
+                'installed' => false,
+                'active' => false,
+                'jails' => [],
+                'available_jails' => [],
+            ];
+        }
+
+        $statusResult = $this->runFail2BanCommand('status');
+        $active = $statusResult['success'];
+        $jails = $this->parseJailList($statusResult['output']);
+        $jailStats = [];
+
+        foreach ($jails as $jail) {
+            $jailStats[] = $this->getFail2BanJailStatus($jail);
+        }
+
+        return [
+            'installed' => true,
+            'active' => $active,
+            'jails' => $jailStats,
+            'available_jails' => $this->listAvailableJails(),
+            'global_status_raw' => $statusResult['output'],
+        ];
+    }
+
+    public function getFail2BanJailStatus(string $jail): array
+    {
+        $jail = trim($jail);
+        $result = $this->runFail2BanCommand("status {$jail}");
+
+        if (! $result['success']) {
+            return [
+                'name' => $jail,
+                'enabled' => false,
+                'exists' => false,
+                'raw' => $result['output'],
+                'currently_failed' => 0,
+                'total_failed' => 0,
+                'currently_banned' => 0,
+                'total_banned' => 0,
+                'banned_ip_list' => [],
+            ];
+        }
+
+        return [
+            'name' => $jail,
+            'enabled' => true,
+            'exists' => true,
+            'raw' => $result['output'],
+            'currently_failed' => $this->extractInt($result['output'], 'Currently failed'),
+            'total_failed' => $this->extractInt($result['output'], 'Total failed'),
+            'currently_banned' => $this->extractInt($result['output'], 'Currently banned'),
+            'total_banned' => $this->extractInt($result['output'], 'Total banned'),
+            'banned_ip_list' => $this->extractList($result['output'], 'Banned IP list'),
+        ];
+    }
+
+    public function setFail2BanJailState(string $jail, bool $enabled): array
+    {
+        $jail = strtolower(trim($jail));
+        if ($jail === '') {
+            return ['success' => false, 'message' => 'Nama jail tidak boleh kosong.'];
+        }
+
+        $safeJail = preg_replace('/[^a-zA-Z0-9\-_]/', '', $jail);
+        $value = $enabled ? 'true' : 'false';
+        $configPath = '/etc/fail2ban/jail.d/firepanel.local';
+
+        $block = "[{$safeJail}]\nenabled = {$value}\n";
+        $escapedPath = escapeshellarg($configPath);
+
+        $this->exec("touch {$escapedPath}");
+        $existing = $this->exec("cat {$escapedPath}");
+        $content = $existing['output'];
+
+        if (preg_match('/\[' . preg_quote($safeJail, '/') . '\][\s\S]*?(?=\n\[|$)/', $content)) {
+            $newContent = preg_replace(
+                '/\[' . preg_quote($safeJail, '/') . '\][\s\S]*?(?=\n\[|$)/',
+                trim($block) . "\n",
+                $content
+            );
+        } else {
+            $newContent = trim($content) . "\n\n" . $block;
+        }
+
+        $tmpPath = '/tmp/firepanel-fail2ban.local';
+        file_put_contents($tmpPath, trim($newContent) . "\n");
+        $copy = $this->exec('cp ' . escapeshellarg($tmpPath) . ' ' . $escapedPath);
+        @unlink($tmpPath);
+
+        if (! $copy['success']) {
+            return ['success' => false, 'message' => 'Gagal menyimpan konfigurasi jail.'];
+        }
+
+        $restart = $this->exec('systemctl restart fail2ban');
+        if (! $restart['success']) {
+            return ['success' => false, 'message' => 'Konfigurasi tersimpan, tapi gagal restart fail2ban: ' . $restart['output']];
+        }
+
+        return ['success' => true, 'message' => "Jail {$safeJail} diset ke enabled={$value}."];
+    }
+
+    public function getFail2BanLogs(): array
+    {
+        if (! $this->isFail2BanInstalled()) {
+            return ['success' => false, 'message' => 'Fail2Ban belum terpasang.', 'data' => []];
+        }
+
+        $globalStatus = $this->runFail2BanCommand('status');
+        $jails = $this->parseJailList($globalStatus['output']);
+        $all = [
+            [
+                'scope' => 'all',
+                'content' => $globalStatus['output'],
+            ],
+        ];
+
+        foreach ($jails as $jail) {
+            $status = $this->runFail2BanCommand("status {$jail}");
+            $all[] = [
+                'scope' => $jail,
+                'content' => $status['output'],
+            ];
+        }
+
+        return ['success' => true, 'data' => $all];
+    }
+
+    private function runFail2BanCommand(string $args): array
+    {
+        $cmd = "fail2ban-client {$args}";
+        $sudoResult = $this->exec($cmd);
+
+        if ($sudoResult['success']) {
+            return $sudoResult;
+        }
+
+        $fallback = $this->execNoSudo($cmd);
+        if ($fallback['success'] || !empty(trim($fallback['output']))) {
+            return $fallback;
+        }
+
+        return $sudoResult;
+    }
+
+    private function parseJailList(string $output): array
+    {
+        if (! preg_match('/Jail list:\s*(.*)/i', $output, $m)) {
+            return [];
+        }
+
+        $list = array_map('trim', explode(',', $m[1]));
+        return array_values(array_filter($list));
+    }
+
+    private function listAvailableJails(): array
+    {
+        $result = $this->exec("grep -hroP '^\\[[a-zA-Z0-9_-]+\\]' /etc/fail2ban/jail.conf /etc/fail2ban/jail.d/*.conf /etc/fail2ban/jail.local 2>/dev/null | tr -d '[]' | sort -u");
+        $items = array_map('trim', explode("\n", $result['output']));
+        $items = array_values(array_filter($items));
+
+        if (empty($items)) {
+            return ['sshd', 'recidive'];
+        }
+
+        return $items;
+    }
+
+    private function extractInt(string $output, string $label): int
+    {
+        if (preg_match('/' . preg_quote($label, '/') . ':\s*(\d+)/i', $output, $m)) {
+            return (int) $m[1];
+        }
+        return 0;
+    }
+
+    private function extractList(string $output, string $label): array
+    {
+        if (! preg_match('/' . preg_quote($label, '/') . ':\s*(.*)/i', $output, $m)) {
+            return [];
+        }
+
+        return array_values(array_filter(array_map('trim', preg_split('/\s+/', trim($m[1])))));
+    }
+
+    // =========================================================
+    //  BACKUP MANAGER
+    // =========================================================
+
+    public function backupMysql(array $data): array
+    {
+        $host = $data['host'] ?? '127.0.0.1';
+        $port = (int) ($data['port'] ?? 3306);
+        $user = $data['username'] ?? '';
+        $pass = $data['password'] ?? '';
+        $db   = $data['database'] ?? '';
+        $dest = $data['destination'] ?? '/var/backups/firepanel';
+
+        if ($user === '' || $db === '') {
+            return ['success' => false, 'message' => 'Username dan nama database wajib diisi.'];
+        }
+
+        $safeDest = $this->ensureDirectory($dest);
+        $filename = $safeDest . '/mysql-' . $db . '-' . date('Ymd-His') . '.sql.gz';
+
+        $cmd = sprintf(
+            'bash -lc %s',
+            escapeshellarg(
+                "MYSQL_PWD=" . escapeshellarg($pass) .
+                " mysqldump -h " . escapeshellarg($host) .
+                " -P " . $port .
+                " -u " . escapeshellarg($user) .
+                " --single-transaction --quick " . escapeshellarg($db) .
+                " | gzip > " . escapeshellarg($filename)
+            )
+        );
+
+        $result = $this->exec($cmd);
+        $ok = $result['success'];
+        $this->notifyBackup("MySQL backup {$db}", $ok, $ok ? "Tersimpan di {$filename}" : $result['output']);
+
+        return [
+            'success' => $ok,
+            'message' => $ok ? "Backup MySQL berhasil: {$filename}" : "Backup MySQL gagal: {$result['output']}",
+            'file' => $filename,
+        ];
+    }
+
+    public function backupFolderZip(string $source, string $destination): array
+    {
+        $safeSource = rtrim($source, '/');
+        $safeDest = $this->ensureDirectory($destination);
+        $zipFile = $safeDest . '/folder-' . basename($safeSource) . '-' . date('Ymd-His') . '.zip';
+
+        $cmd = 'zip -r ' . escapeshellarg($zipFile) . ' ' . escapeshellarg($safeSource);
+        $result = $this->exec($cmd);
+        $ok = $result['success'];
+        $this->notifyBackup("ZIP folder {$safeSource}", $ok, $ok ? "Tersimpan di {$zipFile}" : $result['output']);
+
+        return [
+            'success' => $ok,
+            'message' => $ok ? "Backup folder berhasil: {$zipFile}" : "Backup folder gagal: {$result['output']}",
+            'file' => $zipFile,
+        ];
+    }
+
+    public function backupRsync(array $data): array
+    {
+        $source = rtrim($data['source'] ?? '', '/');
+        $remoteHost = $data['remote_host'] ?? '';
+        $remoteUser = $data['remote_user'] ?? '';
+        $remotePath = $data['remote_path'] ?? '';
+        $port = (int) ($data['port'] ?? 22);
+        $sshKey = $data['ssh_key'] ?? '';
+
+        if ($source === '' || $remoteHost === '' || $remoteUser === '' || $remotePath === '') {
+            return ['success' => false, 'message' => 'Source, remote host, remote user, dan remote path wajib diisi.'];
+        }
+
+        $sshOpt = "-p {$port} -o StrictHostKeyChecking=no";
+        if (! empty($sshKey)) {
+            $sshOpt .= ' -i ' . escapeshellarg($sshKey);
+        }
+
+        $cmd = 'rsync -az --delete -e ' . escapeshellarg("ssh {$sshOpt}") . ' '
+            . escapeshellarg($source) . '/ '
+            . escapeshellarg("{$remoteUser}@{$remoteHost}:{$remotePath}");
+
+        $result = $this->exec($cmd);
+        $ok = $result['success'];
+        $this->notifyBackup("Rsync {$source} ke {$remoteHost}", $ok, $result['output']);
+
+        return [
+            'success' => $ok,
+            'message' => $ok ? 'Backup rsync berhasil dijalankan.' : 'Backup rsync gagal: ' . $result['output'],
+        ];
+    }
+
+    public function setBackupCrontab(string $cronExpr, string $commandName, array $payload): array
+    {
+        $cronFile = '/etc/cron.d/firepanel-backup';
+        $php = PHP_BINARY;
+        $artisan = base_path('artisan');
+        $encoded = base64_encode(json_encode($payload));
+        $line = "{$cronExpr} root cd " . base_path() . " && {$php} {$artisan} firewall:backup-run {$commandName} {$encoded} >> /var/log/firepanel-backup.log 2>&1";
+
+        $content = "SHELL=/bin/bash\nPATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\n{$line}\n";
+        $tmp = '/tmp/firepanel-backup-cron';
+        file_put_contents($tmp, $content);
+
+        $copy = $this->exec('cp ' . escapeshellarg($tmp) . ' ' . escapeshellarg($cronFile));
+        @unlink($tmp);
+
+        if (! $copy['success']) {
+            return ['success' => false, 'message' => 'Gagal menyimpan crontab backup: ' . $copy['output']];
+        }
+
+        return ['success' => true, 'message' => 'Crontab backup berhasil disimpan.'];
+    }
+
+    public function getBackupCrontab(): array
+    {
+        $result = $this->exec('cat /etc/cron.d/firepanel-backup');
+        if (! $result['success']) {
+            return ['success' => false, 'content' => '', 'message' => 'Belum ada crontab backup.'];
+        }
+        return ['success' => true, 'content' => $result['output']];
+    }
+
+    private function ensureDirectory(string $dir): string
+    {
+        $safe = rtrim($dir, '/');
+        $this->exec('mkdir -p ' . escapeshellarg($safe));
+        return $safe;
+    }
+
+    private function notifyBackup(string $title, bool $success, string $detail): void
+    {
+        if (config('firewall.backup_telegram_notify', true) !== true) {
+            return;
+        }
+
+        $icon = $success ? '✅' : '❌';
+        $status = $success ? 'BERHASIL' : 'GAGAL';
+        $this->notifyTelegram("{$icon} *Backup {$status}*\n{$title}\n{$detail}");
     }
 }
