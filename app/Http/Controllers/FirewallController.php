@@ -384,4 +384,71 @@ class FirewallController extends Controller
         $result = $this->firewall->getFail2BanLogs();
         return response()->json($result, $result['success'] ? 200 : 422);
     }
+
+    // =========================================================
+    //  BACKUP MANAGER
+    // =========================================================
+
+    public function backupPage()
+    {
+        return view('firewall.backup');
+    }
+
+    public function backupMysql(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'host' => 'required|string',
+            'port' => 'required|integer|min:1|max:65535',
+            'username' => 'required|string',
+            'password' => 'nullable|string',
+            'database' => 'required|string',
+            'destination' => 'required|string',
+        ]);
+
+        $result = $this->firewall->backupMysql($validated);
+        return response()->json($result, $result['success'] ? 200 : 422);
+    }
+
+    public function backupZip(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'source' => 'required|string',
+            'destination' => 'required|string',
+        ]);
+
+        $result = $this->firewall->backupFolderZip($validated['source'], $validated['destination']);
+        return response()->json($result, $result['success'] ? 200 : 422);
+    }
+
+    public function backupRsync(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'source' => 'required|string',
+            'remote_host' => 'required|string',
+            'remote_user' => 'required|string',
+            'remote_path' => 'required|string',
+            'port' => 'nullable|integer|min:1|max:65535',
+            'ssh_key' => 'nullable|string',
+        ]);
+
+        $result = $this->firewall->backupRsync($validated);
+        return response()->json($result, $result['success'] ? 200 : 422);
+    }
+
+    public function backupCrontabSave(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'cron' => 'required|string',
+            'type' => 'required|in:mysql,zip,rsync',
+            'payload' => 'required|array',
+        ]);
+
+        $result = $this->firewall->setBackupCrontab($validated['cron'], $validated['type'], $validated['payload']);
+        return response()->json($result, $result['success'] ? 200 : 422);
+    }
+
+    public function backupCrontabShow(): JsonResponse
+    {
+        return response()->json($this->firewall->getBackupCrontab());
+    }
 }

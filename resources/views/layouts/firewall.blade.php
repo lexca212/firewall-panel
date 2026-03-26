@@ -206,6 +206,9 @@
       <a href="{{ route('firewall.fail2ban.index') }}" class="nav-item {{ request()->routeIs('firewall.fail2ban.*') ? 'active' : '' }}">
         <span class="ico">🛡</span> Fail2Ban
       </a>
+      <a href="{{ route('firewall.backup.index') }}" class="nav-item {{ request()->routeIs('firewall.backup.*') ? 'active' : '' }}">
+        <span class="ico">🗄</span> Backup
+      </a>
     </div>
     <div class="sidebar-bottom">
       <a href="#" class="nav-item" id="btn-toggle-fw" onclick="toggleFirewall()">

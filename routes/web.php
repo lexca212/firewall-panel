@@ -61,6 +61,14 @@ Route::prefix('firewall')->name('firewall.')->group(function () {
         Route::post('/fail2ban/install', [FirewallController::class, 'fail2banInstall'])->name('fail2ban.install');
         Route::post('/fail2ban/jail', [FirewallController::class, 'fail2banSetJail'])->name('fail2ban.jail');
         Route::get('/fail2ban/logs', [FirewallController::class, 'fail2banLogs'])->name('fail2ban.logs');
+
+        // Backup Manager
+        Route::get('/backup', [FirewallController::class, 'backupPage'])->name('backup.index');
+        Route::post('/backup/mysql', [FirewallController::class, 'backupMysql'])->name('backup.mysql');
+        Route::post('/backup/zip', [FirewallController::class, 'backupZip'])->name('backup.zip');
+        Route::post('/backup/rsync', [FirewallController::class, 'backupRsync'])->name('backup.rsync');
+        Route::post('/backup/crontab', [FirewallController::class, 'backupCrontabSave'])->name('backup.crontab.save');
+        Route::get('/backup/crontab', [FirewallController::class, 'backupCrontabShow'])->name('backup.crontab.show');
     });
 });
 

@@ -671,4 +671,146 @@ class FirewallService
 
         return array_values(array_filter(array_map('trim', preg_split('/\s+/', trim($m[1])))));
     }
+
+    // =========================================================
+    //  BACKUP MANAGER
+    // =========================================================
+
+    public function backupMysql(array $data): array
+    {
+        $host = $data['host'] ?? '127.0.0.1';
+        $port = (int) ($data['port'] ?? 3306);
+        $user = $data['username'] ?? '';
+        $pass = $data['password'] ?? '';
+        $db   = $data['database'] ?? '';
+        $dest = $data['destination'] ?? '/var/backups/firepanel';
+
+        if ($user === '' || $db === '') {
+            return ['success' => false, 'message' => 'Username dan nama database wajib diisi.'];
+        }
+
+        $safeDest = $this->ensureDirectory($dest);
+        $filename = $safeDest . '/mysql-' . $db . '-' . date('Ymd-His') . '.sql.gz';
+
+        $cmd = sprintf(
+            'bash -lc %s',
+            escapeshellarg(
+                "MYSQL_PWD=" . escapeshellarg($pass) .
+                " mysqldump -h " . escapeshellarg($host) .
+                " -P " . $port .
+                " -u " . escapeshellarg($user) .
+                " --single-transaction --quick " . escapeshellarg($db) .
+                " | gzip > " . escapeshellarg($filename)
+            )
+        );
+
+        $result = $this->exec($cmd);
+        $ok = $result['success'];
+        $this->notifyBackup("MySQL backup {$db}", $ok, $ok ? "Tersimpan di {$filename}" : $result['output']);
+
+        return [
+            'success' => $ok,
+            'message' => $ok ? "Backup MySQL berhasil: {$filename}" : "Backup MySQL gagal: {$result['output']}",
+            'file' => $filename,
+        ];
+    }
+
+    public function backupFolderZip(string $source, string $destination): array
+    {
+        $safeSource = rtrim($source, '/');
+        $safeDest = $this->ensureDirectory($destination);
+        $zipFile = $safeDest . '/folder-' . basename($safeSource) . '-' . date('Ymd-His') . '.zip';
+
+        $cmd = 'zip -r ' . escapeshellarg($zipFile) . ' ' . escapeshellarg($safeSource);
+        $result = $this->exec($cmd);
+        $ok = $result['success'];
+        $this->notifyBackup("ZIP folder {$safeSource}", $ok, $ok ? "Tersimpan di {$zipFile}" : $result['output']);
+
+        return [
+            'success' => $ok,
+            'message' => $ok ? "Backup folder berhasil: {$zipFile}" : "Backup folder gagal: {$result['output']}",
+            'file' => $zipFile,
+        ];
+    }
+
+    public function backupRsync(array $data): array
+    {
+        $source = rtrim($data['source'] ?? '', '/');
+        $remoteHost = $data['remote_host'] ?? '';
+        $remoteUser = $data['remote_user'] ?? '';
+        $remotePath = $data['remote_path'] ?? '';
+        $port = (int) ($data['port'] ?? 22);
+        $sshKey = $data['ssh_key'] ?? '';
+
+        if ($source === '' || $remoteHost === '' || $remoteUser === '' || $remotePath === '') {
+            return ['success' => false, 'message' => 'Source, remote host, remote user, dan remote path wajib diisi.'];
+        }
+
+        $sshOpt = "-p {$port} -o StrictHostKeyChecking=no";
+        if (! empty($sshKey)) {
+            $sshOpt .= ' -i ' . escapeshellarg($sshKey);
+        }
+
+        $cmd = 'rsync -az --delete -e ' . escapeshellarg("ssh {$sshOpt}") . ' '
+            . escapeshellarg($source) . '/ '
+            . escapeshellarg("{$remoteUser}@{$remoteHost}:{$remotePath}");
+
+        $result = $this->exec($cmd);
+        $ok = $result['success'];
+        $this->notifyBackup("Rsync {$source} ke {$remoteHost}", $ok, $result['output']);
+
+        return [
+            'success' => $ok,
+            'message' => $ok ? 'Backup rsync berhasil dijalankan.' : 'Backup rsync gagal: ' . $result['output'],
+        ];
+    }
+
+    public function setBackupCrontab(string $cronExpr, string $commandName, array $payload): array
+    {
+        $cronFile = '/etc/cron.d/firepanel-backup';
+        $php = PHP_BINARY;
+        $artisan = base_path('artisan');
+        $encoded = base64_encode(json_encode($payload));
+        $line = "{$cronExpr} root cd " . base_path() . " && {$php} {$artisan} firewall:backup-run {$commandName} {$encoded} >> /var/log/firepanel-backup.log 2>&1";
+
+        $content = "SHELL=/bin/bash\nPATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\n{$line}\n";
+        $tmp = '/tmp/firepanel-backup-cron';
+        file_put_contents($tmp, $content);
+
+        $copy = $this->exec('cp ' . escapeshellarg($tmp) . ' ' . escapeshellarg($cronFile));
+        @unlink($tmp);
+
+        if (! $copy['success']) {
+            return ['success' => false, 'message' => 'Gagal menyimpan crontab backup: ' . $copy['output']];
+        }
+
+        return ['success' => true, 'message' => 'Crontab backup berhasil disimpan.'];
+    }
+
+    public function getBackupCrontab(): array
+    {
+        $result = $this->exec('cat /etc/cron.d/firepanel-backup');
+        if (! $result['success']) {
+            return ['success' => false, 'content' => '', 'message' => 'Belum ada crontab backup.'];
+        }
+        return ['success' => true, 'content' => $result['output']];
+    }
+
+    private function ensureDirectory(string $dir): string
+    {
+        $safe = rtrim($dir, '/');
+        $this->exec('mkdir -p ' . escapeshellarg($safe));
+        return $safe;
+    }
+
+    private function notifyBackup(string $title, bool $success, string $detail): void
+    {
+        if (config('firewall.backup_telegram_notify', true) !== true) {
+            return;
+        }
+
+        $icon = $success ? '✅' : '❌';
+        $status = $success ? 'BERHASIL' : 'GAGAL';
+        $this->notifyTelegram("{$icon} *Backup {$status}*\n{$title}\n{$detail}");
+    }
 }
